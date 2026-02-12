@@ -480,6 +480,88 @@ def composite_logo_on_qr(
 
 
 # ---------------------------------------------------------------------------
+# 2.8b  Rasterized logo (dot-grid rendering)
+# ---------------------------------------------------------------------------
+
+@trace
+def rasterize_logo_on_qr(
+    qr_image: Image.Image,
+    logo_mask_on_qr: np.ndarray,
+    zone_map: dict[str, set],
+    box_size: int = 20,
+    border: int = 4,
+    logo_color: tuple[int, ...] = (0, 0, 0),
+    shape: str = "circle",
+    sub_grid: int = 3,
+) -> Image.Image:
+    """Render the logo as a dot grid matching the QR module style.
+
+    Instead of pasting a solid silhouette, this subdivides each covered
+    module into a *sub_grid* x *sub_grid* cell grid and draws small dots
+    where the logo mask is active — creating a cohesive halftone effect.
+
+    Args:
+        qr_image:        Styled QR (RGB).
+        logo_mask_on_qr: Bool array (total_px x total_px) from fit_logo_to_qr.
+        zone_map:        Module zone classification (covered / edge / clear).
+        box_size:        Pixel size of one QR module.
+        border:          QR quiet-zone width in modules.
+        logo_color:      RGB fill for the logo dots.
+        shape:           Dot shape — 'circle', 'rounded', or 'square'.
+        sub_grid:        Sub-divisions per module (default 3 → 9 dots max).
+
+    Returns:
+        New RGB image with the logo rendered as dots.
+    """
+    result = qr_image.copy()
+    draw = ImageDraw.Draw(result)
+
+    covered = zone_map["covered"]
+    edge = zone_map["edge"]
+
+    sub_size = box_size // sub_grid
+    pad = (box_size - sub_size * sub_grid) // 2
+    margin = max(1, sub_size // 8)
+
+    # Clear covered + edge modules to white
+    for r, c in covered | edge:
+        px = (c + border) * box_size
+        py = (r + border) * box_size
+        draw.rectangle([px, py, px + box_size - 1, py + box_size - 1], fill=(255, 255, 255))
+
+    # Draw sub-grid dots for covered modules where logo mask is active
+    mask_h, mask_w = logo_mask_on_qr.shape
+    dots_drawn = 0
+
+    for r, c in covered:
+        mod_px = (c + border) * box_size
+        mod_py = (r + border) * box_size
+
+        for si in range(sub_grid):
+            for sj in range(sub_grid):
+                center_x = mod_px + pad + sj * sub_size + sub_size // 2
+                center_y = mod_py + pad + si * sub_size + sub_size // 2
+
+                # Bounds check against the mask array
+                if 0 <= center_y < mask_h and 0 <= center_x < mask_w:
+                    if logo_mask_on_qr[center_y, center_x]:
+                        dot_x = mod_px + pad + sj * sub_size
+                        dot_y = mod_py + pad + si * sub_size
+                        _draw_module(draw, dot_x, dot_y, sub_size, margin, logo_color, shape)
+                        dots_drawn += 1
+
+    audit(
+        "logo.rasterized", logger=log,
+        sub_grid=sub_grid,
+        sub_size=sub_size,
+        covered_modules=len(covered),
+        edge_modules=len(edge),
+        dots_drawn=dots_drawn,
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
 # 2.9  Leaf-as-anchor metadata
 # ---------------------------------------------------------------------------
 
@@ -604,11 +686,13 @@ def generate_logo_qr(
     # -- 8. Contrast boost --------------------------------------------------
     qr_img = apply_contrast_boost(qr_img, strength=0.12)
 
-    # -- 9. Composite logo --------------------------------------------------
-    final = composite_logo_on_qr(
-        qr_img, logo_img,
+    # -- 9. Rasterize logo as dot grid --------------------------------------
+    final = rasterize_logo_on_qr(
+        qr_img, logo_on_qr, zone_map,
+        box_size=box_size,
+        border=border,
         logo_color=logo_color,
-        coverage=logo_coverage,
+        shape=shape,
     )
 
     # -- 10. Leaf-as-anchor metadata ----------------------------------------
