@@ -12,3 +12,8 @@ QR Code Next Generation — a system that transforms QR codes into beautiful, br
 - **Add dependencies:** `uv add <package>`
 - **Run scripts:** `uv run python <script>`
 - **Never use** `pip install` or `python -m venv` directly.
+
+## Git
+
+- **Always commit `.claude/` directory** — it contains project skills and commands that should be version-controlled.
+- Never add `.claude/` to `.gitignore`.
