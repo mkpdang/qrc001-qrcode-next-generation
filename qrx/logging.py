@@ -3,6 +3,7 @@
 import functools
 import json
 import logging
+import sys
 import time
 import traceback
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ AUDIT = 35
 logging.addLevelName(AUDIT, "AUDIT")
 
 
-def _truncate(value, max_len=80):
+def _truncate(value: object, max_len: int = 80) -> str:
     """Truncate a string for safe logging."""
     s = str(value)
     if len(s) > max_len:
@@ -191,7 +192,6 @@ def trace(func=None, *, logger_name: str | None = None):
                 return result
             except Exception:
                 elapsed = (time.perf_counter() - start) * 1000
-                import sys
                 record = log.makeRecord(
                     name=log.name, level=logging.ERROR, fn="", lno=0,
                     msg="", args=(), exc_info=sys.exc_info(),

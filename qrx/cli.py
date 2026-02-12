@@ -11,6 +11,12 @@ from qrx.logging import setup_logging, get_logger, audit
 log = get_logger("cli")
 
 
+def _parse_hex_color(s: str) -> tuple[int, int, int]:
+    """Parse a hex colour string (with or without '#') to an RGB tuple."""
+    s = s.lstrip("#")
+    return tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))
+
+
 def cmd_generate(args):
     """Generate a QR code."""
     from qrx.generator import generate_qr, generate_all_masks
@@ -123,14 +129,9 @@ def cmd_logo_qr(args):
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Parse hex colours
-    def _hex(s):
-        s = s.lstrip("#")
-        return tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))
-
-    data_color = _hex(args.color) if args.color else (0, 0, 0)
-    finder_color = _hex(args.finder_color) if args.finder_color else None
-    logo_color = _hex(args.logo_color) if args.logo_color else (0, 0, 0)
+    data_color = _parse_hex_color(args.color) if args.color else (0, 0, 0)
+    finder_color = _parse_hex_color(args.finder_color) if args.finder_color else None
+    logo_color = _parse_hex_color(args.logo_color) if args.logo_color else (0, 0, 0)
 
     result = generate_logo_qr(
         data=args.url,

@@ -2,11 +2,10 @@
 
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 from pyzbar.pyzbar import decode as pyzbar_decode
 
 from qrx.logging import audit, get_logger, trace
@@ -182,21 +181,16 @@ def apply_occlusion(image: Image.Image, coverage: float = 0.05, position: str = 
     w, h = img.size
     block_w = int(w * (coverage ** 0.5))
     block_h = int(h * (coverage ** 0.5))
-
-    from PIL import ImageDraw
     draw = ImageDraw.Draw(img)
 
-    if position == "center":
-        x0 = (w - block_w) // 2
-        y0 = (h - block_h) // 2
-    elif position == "top-left":
-        x0, y0 = 0, 0
-    elif position == "bottom-right":
-        x0 = w - block_w
-        y0 = h - block_h
-    else:
-        x0 = (w - block_w) // 2
-        y0 = (h - block_h) // 2
+    position_offsets = {
+        "top-left": (0, 0),
+        "bottom-right": (w - block_w, h - block_h),
+    }
+    x0, y0 = position_offsets.get(
+        position,
+        ((w - block_w) // 2, (h - block_h) // 2),
+    )
 
     draw.rectangle([x0, y0, x0 + block_w, y0 + block_h], fill=(255, 255, 255))
     return img

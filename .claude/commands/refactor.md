@@ -68,6 +68,10 @@ After all edits, produce a short summary at the end:
 - **Do not add docstrings** to private helper functions unless the logic is non-obvious.
 - **Do not change logging behaviour** — preserve all `@trace` and `audit()` calls.
 
+## Related Skills
+
+After refactoring, consider running the **`/add-logging`** skill on the same scope to ensure all public functions have `@trace` decorators and key business events have `audit()` calls. Logging is additive and complements the structural clean-up done here.
+
 ## Applying to target
 
 When the user specifies a file or module:
@@ -76,5 +80,6 @@ When the user specifies a file or module:
 3. Edit in place
 4. Run verification to confirm no regressions
 5. Output the refactor summary
+6. Suggest running `/add-logging` if logging coverage is incomplete
 
 ARGUMENTS: $ARGUMENTS

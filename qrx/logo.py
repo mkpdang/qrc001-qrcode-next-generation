@@ -1,7 +1,5 @@
 """M2: Logo Processing — load logos, extract silhouettes, compute QR module overlaps."""
 
-import math
-
 import numpy as np
 from PIL import Image, ImageDraw
 

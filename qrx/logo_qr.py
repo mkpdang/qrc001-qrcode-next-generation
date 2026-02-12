@@ -13,7 +13,6 @@ Implements:
 """
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
@@ -212,17 +211,16 @@ def find_best_mask(
 # 2.7  WCAG contrast ratio
 # ---------------------------------------------------------------------------
 
+def _linearize(channel: int) -> float:
+    """Convert sRGB channel (0-255) to linear light value."""
+    c = channel / 255.0
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+
 def _luminance(rgb: tuple[int, int, int]) -> float:
     """Relative luminance per WCAG 2.0."""
-    vals = []
-    for c in rgb:
-        c_norm = c / 255.0
-        vals.append(
-            c_norm / 12.92
-            if c_norm <= 0.03928
-            else ((c_norm + 0.055) / 1.055) ** 2.4
-        )
-    return 0.2126 * vals[0] + 0.7152 * vals[1] + 0.0722 * vals[2]
+    r, g, b = [_linearize(ch) for ch in rgb]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
 def check_contrast(fg: tuple[int, ...], bg: tuple[int, ...]) -> float:
@@ -238,7 +236,15 @@ def check_contrast(fg: tuple[int, ...], bg: tuple[int, ...]) -> float:
 # 2.5  Module shape renderer  +  2.4  Finder pattern integration
 # ---------------------------------------------------------------------------
 
-def _draw_module(draw: ImageDraw.Draw, px, py, box, margin, color, shape):
+def _draw_module(
+    draw: ImageDraw.Draw,
+    px: int,
+    py: int,
+    box: int,
+    margin: int,
+    color: tuple[int, ...],
+    shape: str,
+) -> None:
     """Draw a single QR module with the given shape."""
     if shape == "circle":
         cx = px + box // 2
@@ -384,6 +390,22 @@ def apply_contrast_boost(image: Image.Image, strength: float = 0.15) -> Image.Im
 
 
 # ---------------------------------------------------------------------------
+# Shared geometry helper
+# ---------------------------------------------------------------------------
+
+def _scale_preserving_aspect(
+    original_size: tuple[int, int],
+    target: int,
+) -> tuple[int, int]:
+    """Scale (w, h) so the larger dimension equals *target*, preserving aspect."""
+    w, h = original_size
+    aspect = w / h
+    if aspect >= 1:
+        return target, int(target / aspect)
+    return int(target * aspect), target
+
+
+# ---------------------------------------------------------------------------
 # 2.8  Logo composite
 # ---------------------------------------------------------------------------
 
@@ -410,14 +432,8 @@ def composite_logo_on_qr(
     qr_w, qr_h = qr_image.size
 
     # --- Scale logo to target coverage (fraction of QR width) ---
-    target = int(qr_w * coverage)
     logo_gray = logo_image.convert("L")
-    lw, lh = logo_gray.size
-    aspect = lw / lh
-    new_w = target
-    new_h = int(target / aspect) if aspect >= 1 else target
-    if aspect < 1:
-        new_w = int(target * aspect)
+    new_w, new_h = _scale_preserving_aspect(logo_gray.size, int(qr_w * coverage))
     logo_resized = logo_gray.resize((new_w, new_h), Image.LANCZOS)
 
     x_off = (qr_w - new_w) // 2

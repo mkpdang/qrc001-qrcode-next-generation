@@ -1,14 +1,10 @@
 """M1: QR Generation Engine — generate QR codes with full control over version, ECC, mask, and pad codewords."""
 
-import io
-import struct
 from enum import Enum
-from pathlib import Path
 
 import qrcode
 import qrcode.constants
-from qrcode.image.styledpil import StyledPilImage
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from qrx.logging import audit, get_logger, trace
 
@@ -76,7 +72,7 @@ def generate_qr(
     return img
 
 
-def _inject_custom_pad(qr, custom_pad_bytes: bytes):
+def _inject_custom_pad(qr: qrcode.QRCode, custom_pad_bytes: bytes) -> None:
     """Inject custom pad codewords into the QR data before ECC calculation.
 
     Standard QR fills unused data capacity with alternating 0xEC/0x11.
@@ -175,68 +171,19 @@ def get_module_map(
 
     actual_version = qr.version
     size = actual_version * 4 + 17
-    modules = qr.modules
 
-    finder_pos = []
-    alignment_pos = []
-    timing_pos = []
-    format_pos = []
-    data_pos = []
+    finder_pos = _map_finder_positions(size)
+    timing_pos = _map_timing_positions(size)
+    alignment_pos = _map_alignment_positions(actual_version, set(finder_pos))
+    format_pos = _map_format_positions(size)
 
-    # Map finder patterns (top-left, top-right, bottom-left — each 7x7)
-    for r in range(7):
-        for c in range(7):
-            finder_pos.append((r, c))                    # top-left
-            finder_pos.append((r, size - 7 + c))         # top-right
-            finder_pos.append((size - 7 + r, c))         # bottom-left
-
-    # Separators around finders (1-module white border)
-    for i in range(8):
-        for r, c in [(7, i), (i, 7), (7, size - 8 + i), (i, size - 8),
-                      (size - 8, i), (size - 8 + i, 7) if i < 7 else (0, 0)]:
-            if 0 <= r < size and 0 <= c < size and (r, c) not in finder_pos:
-                finder_pos.append((r, c))
-
-    # Timing patterns (row 6 and column 6)
-    for i in range(8, size - 8):
-        timing_pos.append((6, i))
-        timing_pos.append((i, 6))
-
-    # Alignment patterns (for version >= 2)
-    if actual_version >= 2:
-        alignment_coords = _get_alignment_positions(actual_version)
-        for ar, ac in alignment_coords:
-            # Skip if overlapping with finder patterns
-            overlaps_finder = False
-            for r in range(ar - 2, ar + 3):
-                for c in range(ac - 2, ac + 3):
-                    if (r, c) in finder_pos:
-                        overlaps_finder = True
-                        break
-            if not overlaps_finder:
-                for r in range(ar - 2, ar + 3):
-                    for c in range(ac - 2, ac + 3):
-                        alignment_pos.append((r, c))
-
-    # Format information (near finders)
-    for i in range(9):
-        if i != 6:  # skip timing
-            format_pos.append((8, i))
-            format_pos.append((i, 8))
-    for i in range(8):
-        format_pos.append((8, size - 8 + i))
-    for i in range(7):
-        format_pos.append((size - 7 + i, 8))
-
-    # Dark module
-    format_pos.append((size - 8, 8))
-
-    # Everything else is data
     fixed = set(finder_pos + alignment_pos + timing_pos + format_pos)
-    for r in range(size):
-        for c in range(size):
-            if (r, c) not in fixed:
-                data_pos.append((r, c))
+    data_pos = [
+        (r, c)
+        for r in range(size)
+        for c in range(size)
+        if (r, c) not in fixed
+    ]
 
     audit("qr.module_map", logger=log,
           version=actual_version, size=f"{size}x{size}",
@@ -247,7 +194,7 @@ def get_module_map(
     return {
         "version": actual_version,
         "size": size,
-        "modules": modules,
+        "modules": qr.modules,
         "finder_positions": finder_pos,
         "alignment_positions": alignment_pos,
         "timing_positions": timing_pos,
@@ -256,24 +203,99 @@ def get_module_map(
     }
 
 
-def _get_alignment_positions(version: int) -> list[tuple[int, int]]:
+def _map_finder_positions(size: int) -> list[tuple[int, int]]:
+    """Map all finder pattern modules including separators."""
+    positions = []
+    # 7x7 finder grids: top-left, top-right, bottom-left
+    for r in range(7):
+        for c in range(7):
+            positions.append((r, c))
+            positions.append((r, size - 7 + c))
+            positions.append((size - 7 + r, c))
+
+    # 1-module white separators around finders
+    finder_set = set(positions)
+    for i in range(8):
+        candidates = [
+            (7, i), (i, 7),
+            (7, size - 8 + i), (i, size - 8),
+            (size - 8, i),
+        ]
+        if i < 7:
+            candidates.append((size - 8 + i, 7))
+        for r, c in candidates:
+            if 0 <= r < size and 0 <= c < size and (r, c) not in finder_set:
+                positions.append((r, c))
+                finder_set.add((r, c))
+    return positions
+
+
+def _map_timing_positions(size: int) -> list[tuple[int, int]]:
+    """Map timing pattern modules (row 6 and column 6)."""
+    positions = []
+    for i in range(8, size - 8):
+        positions.append((6, i))
+        positions.append((i, 6))
+    return positions
+
+
+def _map_alignment_positions(
+    version: int,
+    finder_set: set[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    """Map alignment pattern modules, skipping finder overlaps."""
+    if version < 2:
+        return []
+    positions = []
+    for ar, ac in _get_alignment_centers(version):
+        block = [
+            (r, c)
+            for r in range(ar - 2, ar + 3)
+            for c in range(ac - 2, ac + 3)
+        ]
+        if not any(pos in finder_set for pos in block):
+            positions.extend(block)
+    return positions
+
+
+def _map_format_positions(size: int) -> list[tuple[int, int]]:
+    """Map format information modules and the dark module."""
+    seen: set[tuple[int, int]] = set()
+    positions: list[tuple[int, int]] = []
+
+    def _add(r: int, c: int) -> None:
+        if (r, c) not in seen:
+            seen.add((r, c))
+            positions.append((r, c))
+
+    # Top-left format info (row 8 and column 8, skipping timing at index 6)
+    for i in range(9):
+        if i != 6:
+            _add(8, i)
+            _add(i, 8)
+    # Top-right format info (row 8, rightmost 8 columns)
+    for i in range(8):
+        _add(8, size - 8 + i)
+    # Bottom-left format info (column 8, bottom 7 rows)
+    for i in range(7):
+        _add(size - 7 + i, 8)
+    # Dark module (always black, required by spec)
+    _add(size - 8, 8)
+    return positions
+
+
+def _get_alignment_centers(version: int) -> list[tuple[int, int]]:
     """Get alignment pattern center coordinates for a given QR version."""
     # Alignment pattern position table (from QR spec)
-    table = {
+    _ALIGNMENT_TABLE = {
         2: [6, 18], 3: [6, 22], 4: [6, 26], 5: [6, 30], 6: [6, 34],
         7: [6, 22, 38], 8: [6, 24, 42], 9: [6, 26, 46], 10: [6, 28, 50],
         11: [6, 30, 54], 12: [6, 32, 58], 13: [6, 34, 62], 14: [6, 26, 46, 66],
         15: [6, 26, 48, 70], 16: [6, 26, 50, 74], 17: [6, 30, 54, 78],
         18: [6, 30, 56, 82], 19: [6, 30, 58, 86], 20: [6, 34, 62, 90],
     }
-    if version not in table:
-        return []
-    coords = table[version]
-    positions = []
-    for r in coords:
-        for c in coords:
-            positions.append((r, c))
-    return positions
+    coords = _ALIGNMENT_TABLE.get(version, [])
+    return [(r, c) for r in coords for c in coords]
 
 
 @trace
@@ -301,8 +323,6 @@ def render_bitmap_dump(module_map: dict, output_path: str | None = None) -> Imag
     # Center safe zone (for logo) — center 30% of grid
     center = size // 2
     safe_radius = int(size * 0.15)  # ~30% diameter = ~15% radius
-
-    from PIL import ImageDraw
     draw = ImageDraw.Draw(img)
 
     for r in range(size):
