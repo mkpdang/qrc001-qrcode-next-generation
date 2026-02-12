@@ -43,3 +43,7 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+
+# QR-X
+output/
+shorturl_db.json
