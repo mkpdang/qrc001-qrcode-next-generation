@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from qrx.logging import setup_logging, get_logger, audit
+from qrx.logging import audit, get_logger, setup_logging, trace
 
 log = get_logger("cli")
 
@@ -17,6 +17,7 @@ def _parse_hex_color(s: str) -> tuple[int, int, int]:
     return tuple(int(s[i : i + 2], 16) for i in (0, 2, 4))
 
 
+@trace
 def cmd_generate(args):
     """Generate a QR code."""
     from qrx.generator import generate_qr, generate_all_masks
@@ -51,6 +52,7 @@ def cmd_generate(args):
         print(f"Generated: {output} ({img.size[0]}x{img.size[1]})")
 
 
+@trace
 def cmd_verify(args):
     """Verify a QR code image."""
     from qrx.verify import verify
@@ -68,6 +70,7 @@ def cmd_verify(args):
     sys.exit(0 if all_pass else 1)
 
 
+@trace
 def cmd_stress(args):
     """Run stress tests on a QR code image."""
     from qrx.verify import stress_test
@@ -78,6 +81,7 @@ def cmd_stress(args):
     sys.exit(0 if result.pass_rate >= 0.8 else 1)
 
 
+@trace
 def cmd_bitmap(args):
     """Generate a color-coded bitmap dump showing module types."""
     from qrx.generator import get_module_map, render_bitmap_dump
@@ -109,6 +113,7 @@ def cmd_bitmap(args):
     print(f"Saved to: {output}")
 
 
+@trace
 def cmd_shorten(args):
     """Shorten a URL."""
     from qrx.shorturl import ShortURLStore
@@ -122,6 +127,7 @@ def cmd_shorten(args):
     print(f"Mode:      {args.mode}")
 
 
+@trace
 def cmd_logo_qr(args):
     """Generate a logo-aware QR code (M2)."""
     from qrx.logo_qr import generate_logo_qr
@@ -169,6 +175,7 @@ def cmd_logo_qr(args):
         print(f"    Mask {m}: {s:>5d}{marker}")
 
 
+@trace
 def cmd_serve(args):
     """Start the redirect server."""
     from qrx.shorturl import ShortURLStore, create_redirect_app

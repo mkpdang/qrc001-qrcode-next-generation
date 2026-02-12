@@ -110,14 +110,20 @@ def load_logo(path: str) -> Image.Image:
     """
     img = Image.open(path)
     if img.mode == "RGBA":
-        return img.split()[3]  # alpha channel
+        mask = img.split()[3]  # alpha channel
+        audit("logo.loaded", logger=log, path=path, mode="RGBA", size=f"{img.size[0]}x{img.size[1]}")
+        return mask
     if img.mode == "LA":
-        return img.split()[1]
+        mask = img.split()[1]
+        audit("logo.loaded", logger=log, path=path, mode="LA", size=f"{img.size[0]}x{img.size[1]}")
+        return mask
     # Fallback: convert to grayscale, auto-invert if needed
     gray = img.convert("L")
     arr = np.array(gray)
-    if arr.mean() > 128:
+    inverted = arr.mean() > 128
+    if inverted:
         arr = 255 - arr
+    audit("logo.loaded", logger=log, path=path, mode=img.mode, inverted=inverted, size=f"{img.size[0]}x{img.size[1]}")
     return Image.fromarray(arr)
 
 

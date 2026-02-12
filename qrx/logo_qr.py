@@ -223,6 +223,7 @@ def _luminance(rgb: tuple[int, int, int]) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+@trace
 def check_contrast(fg: tuple[int, ...], bg: tuple[int, ...]) -> float:
     """WCAG contrast ratio between two RGB colours (1.0 – 21.0)."""
     l1 = _luminance(fg[:3])
@@ -467,7 +468,15 @@ def composite_logo_on_qr(
     result_rgba = result.convert("RGBA")
     result_rgba.paste(logo_rgba, (x_off, y_off), logo_rgba)
 
-    return result_rgba.convert("RGB")
+    final = result_rgba.convert("RGB")
+    audit(
+        "logo.composited", logger=log,
+        qr_size=f"{qr_w}x{qr_h}",
+        logo_size=f"{new_w}x{new_h}",
+        coverage=coverage,
+        bg_margin_px=bg_margin_px,
+    )
+    return final
 
 
 # ---------------------------------------------------------------------------
