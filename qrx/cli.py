@@ -152,6 +152,7 @@ def cmd_logo_qr(args):
         finder_color=finder_color,
         finder_style=args.finder_style,
         logo_color=logo_color,
+        contour_softness=args.contour_softness,
     )
 
     result["image"].save(output)
@@ -173,6 +174,244 @@ def cmd_logo_qr(args):
     for m, s in sorted(result["mask_scores"].items()):
         marker = " <-- best" if m == result["mask"] else ""
         print(f"    Mask {m}: {s:>5d}{marker}")
+
+
+@trace
+def cmd_mosaic_qr(args):
+    """Generate a mosaic QR code with multiple tiles (M5)."""
+    from qrx.mosaic import generate_mosaic_qr
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    data_color = _parse_hex_color(args.color) if args.color else (0, 0, 0)
+    finder_color = _parse_hex_color(args.finder_color) if args.finder_color else None
+
+    result = generate_mosaic_qr(
+        data=args.url,
+        layout=args.layout,
+        tiles=args.tiles,
+        logo=args.logo,
+        use_apple=args.apple,
+        ecc=args.ecc,
+        box_size=args.box_size,
+        border=args.border,
+        gap=args.gap,
+        shape=args.shape,
+        data_color=data_color,
+        finder_color=finder_color,
+        finder_style=args.finder_style,
+        mode=args.mode,
+    )
+
+    result["image"].save(output)
+
+    print(f"Mosaic QR generated: {output} ({result['image'].size[0]}x{result['image'].size[1]})")
+    print(f"  Layout: {result['layout']}, Tiles: {result['tiles_count']}, Mode: {result['mode']}")
+    print(f"  Any tile scans: {'PASS' if result['any_scan_ok'] else 'FAIL'}")
+    for ts in result["per_tile_scan_results"]:
+        tag = "PASS" if ts["scan_ok"] else "FAIL"
+        print(f"    Tile {ts['tile_index']}: {tag}")
+        for sr in ts["scan_results"]:
+            sr_tag = "PASS" if sr.success else "FAIL"
+            print(f"      [{sr.decoder:12s}] {sr_tag} | {sr.decode_time_ms:.1f}ms | {sr.decoded_data or sr.error}")
+
+
+@trace
+def cmd_art_qr(args):
+    """Generate an AI-blended QR art code (M4)."""
+    from qrx.art_qr import optimize_art_qr
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    data_color = _parse_hex_color(args.color) if args.color else (0, 0, 0)
+    finder_color = _parse_hex_color(args.finder_color) if args.finder_color else None
+    logo_color = _parse_hex_color(args.logo_color) if args.logo_color else (0, 0, 0)
+
+    result = optimize_art_qr(
+        data=args.url,
+        use_apple=args.apple,
+        logo=args.logo,
+        iterations=args.iterations,
+        try_all_masks=args.try_all_masks,
+        version=args.version,
+        ecc=args.ecc,
+        box_size=args.box_size,
+        border=args.border,
+        shape=args.shape,
+        data_color=data_color,
+        finder_color=finder_color,
+        finder_style=args.finder_style,
+        logo_color=logo_color,
+        contour_softness=args.contour_softness,
+    )
+
+    result["image"].save(output)
+
+    budget = result["ecc_budget"]
+    print(f"Art QR generated: {output} ({result['image'].size[0]}x{result['image'].size[1]})")
+    print(f"  Version: {budget.version}, ECC: {budget.ecc}, Mask: {result['mask']}")
+    print(f"  Shape: {args.shape}, Finder: {args.finder_style}")
+    print(f"  ECC budget: {budget.budget_used_pct:.1f}% used "
+          f"({budget.logo_covered_modules}/{budget.correctable_modules} modules)")
+    print(f"  SSIM similarity: {result['similarity_before']:.4f} -> {result['similarity_after']:.4f}")
+    print(f"  pHash similarity: {result['phash_similarity']:.4f}")
+    print(f"  Flips applied: {result['flips_applied']}")
+    if result["all_mask_similarities"]:
+        print(f"  Mask similarities (SSIM after optimization):")
+        for m, s in sorted(result["all_mask_similarities"].items()):
+            marker = " <-- best" if m == result["mask"] else ""
+            print(f"    Mask {m}: {s:.4f}{marker}")
+    if result["scan_ok"] is not None:
+        scan_status = "PASS" if result["scan_ok"] else "FAIL"
+        print(f"  Scan: {scan_status}")
+        for sr in result["scan_results"]:
+            tag = "PASS" if sr.success else "FAIL"
+            print(f"    [{sr.decoder:12s}] {tag} | {sr.decode_time_ms:.1f}ms | {sr.decoded_data or sr.error}")
+
+
+@trace
+def cmd_stegano_qr(args):
+    """Generate a steganographic QR code (M6)."""
+    from qrx.stegano import generate_chroma_qr, generate_halftone_qr
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    data_color = _parse_hex_color(args.color) if args.color else (0, 0, 0)
+    finder_color = _parse_hex_color(args.finder_color) if args.finder_color else None
+
+    if args.mode == "halftone":
+        result = generate_halftone_qr(
+            data=args.url,
+            use_apple=args.apple,
+            logo=args.logo,
+            version=args.version,
+            ecc=args.ecc,
+            box_size=args.box_size,
+            border=args.border,
+            data_color=data_color,
+            finder_color=finder_color,
+            finder_style=args.finder_style,
+        )
+
+        result["image"].save(output)
+
+        print(f"Halftone QR generated: {output} ({result['image'].size[0]}x{result['image'].size[1]})")
+        print(f"  Version: {result['version']}, Mask: {result['mask']}")
+        if result["scan_ok"] is not None:
+            scan_status = "PASS" if result["scan_ok"] else "FAIL"
+            print(f"  Scan: {scan_status}")
+            for sr in result["scan_results"]:
+                tag = "PASS" if sr.success else "FAIL"
+                print(f"    [{sr.decoder:12s}] {tag} | {sr.decode_time_ms:.1f}ms | {sr.decoded_data or sr.error}")
+
+    else:  # chroma
+        result = generate_chroma_qr(
+            data=args.url,
+            use_apple=args.apple,
+            logo_color_image=args.logo,
+            version=args.version,
+            ecc=args.ecc,
+            box_size=args.box_size,
+            border=args.border,
+            finder_color=finder_color,
+            finder_style=args.finder_style,
+        )
+
+        result["image"].save(output)
+
+        print(f"Chroma QR generated: {output} ({result['image'].size[0]}x{result['image'].size[1]})")
+        print(f"  Delta-E max: {result['delta_e_max']:.2f}")
+        if result["scan_ok"] is not None:
+            scan_status = "PASS" if result["scan_ok"] else "FAIL"
+            print(f"  Scan: {scan_status}")
+
+
+@trace
+def cmd_lumen(args):
+    """Generate or decode a Lumen-Code (M7)."""
+    from qrx.lumen import decode_lumen_code, generate_lumen_code
+
+    if args.decode:
+        result = decode_lumen_code(
+            args.decode,
+            original_logo=args.logo,
+            use_apple=args.apple,
+            method=args.method,
+            strength=args.strength,
+        )
+        if result["success"]:
+            print(f"Decoded: {result['decoded_data']}")
+        else:
+            print("Decode FAILED")
+        return
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    result = generate_lumen_code(
+        data=args.url,
+        logo=args.logo,
+        use_apple=args.apple,
+        method=args.method,
+        strength=args.strength,
+        output_size=args.size,
+    )
+
+    result["image"].save(output)
+
+    rt = "PASS" if result["round_trip_ok"] else "FAIL"
+    print(f"Lumen-Code generated: {output}")
+    print(f"  Method: {result['method']}")
+    print(f"  Bits encoded: {result['bits_encoded']}")
+    print(f"  Round-trip: {rt}")
+    if result["decoded_data"] is not None:
+        print(f"  Decoded: {result['decoded_data']}")
+
+
+@trace
+def cmd_datafont(args):
+    """Generate or decode a Data Font image (M8)."""
+    from qrx.datafont import decode_data_text, generate_data_font_demo
+
+    if args.decode:
+        img = Image.open(args.decode)
+        url = decode_data_text(
+            img,
+            font_size=args.font_size,
+            scale=args.scale,
+            n_chars=len(args.text),
+        )
+        if url:
+            print(f"Decoded URL: {url}")
+        else:
+            print("Decode FAILED (parity check failed or no data)")
+        return
+
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    result = generate_data_font_demo(
+        text=args.text,
+        url=args.url,
+        font_size=args.font_size,
+        scale=args.scale,
+    )
+
+    result["image"].save(output)
+
+    rt = "PASS" if result["round_trip_ok"] else "FAIL"
+    print(f"Data Font generated: {output} ({result['image'].size[0]}x{result['image'].size[1]})")
+    print(f"  Text: {result['text']}")
+    print(f"  URL: {result['url']}")
+    print(f"  Font size: {result['font_size']}px")
+    print(f"  Bits: {result['bits_used']}/{result['bits_available']} used")
+    print(f"  Compression ratio: {result['compression_ratio']}")
+    print(f"  Round-trip: {rt}")
+    if result["decoded_url"] is not None:
+        print(f"  Decoded: {result['decoded_url']}")
 
 
 @trace
@@ -242,6 +481,97 @@ def main():
     p_logo.add_argument("--finder-style", default="rounded",
                         choices=["standard", "rounded", "dots"], help="Finder pattern style")
     p_logo.add_argument("--logo-color", default=None, help="Logo silhouette colour (hex)")
+    p_logo.add_argument("--contour-softness", type=float, default=1.0,
+                        help="Contour falloff curve (0=hard, 1=linear, 2=gradual)")
+
+    # --- art-qr ---
+    p_art = subparsers.add_parser("art-qr", help="Generate AI-blended QR art code (M4)")
+    p_art.add_argument("url", help="URL or data to encode")
+    p_art.add_argument("-o", "--output", default="output/art_qr.png", help="Output file path")
+    p_art.add_argument("--apple", action="store_true", help="Use built-in Apple logo")
+    p_art.add_argument("--logo", default=None, help="Path to custom logo image")
+    p_art.add_argument("--iterations", type=int, default=3, help="Optimization iterations")
+    p_art.add_argument("--try-all-masks", action="store_true",
+                        help="Try all 8 mask patterns with bit-flipping (slower but better results)")
+    p_art.add_argument("-v", "--version", type=int, default=None, help="QR version")
+    p_art.add_argument("-e", "--ecc", default="H", choices=["L", "M", "Q", "H"])
+    p_art.add_argument("--box-size", type=int, default=20, help="Module pixel size")
+    p_art.add_argument("--border", type=int, default=4, help="Quiet zone modules")
+    p_art.add_argument("--shape", default="circle", choices=["square", "circle", "rounded"],
+                        help="Data module shape")
+    p_art.add_argument("--color", default=None, help="Data module colour (hex e.g. '000000')")
+    p_art.add_argument("--finder-color", default=None, help="Finder colour (hex)")
+    p_art.add_argument("--finder-style", default="rounded",
+                        choices=["standard", "rounded", "dots"], help="Finder pattern style")
+    p_art.add_argument("--logo-color", default=None, help="Logo silhouette colour (hex)")
+    p_art.add_argument("--contour-softness", type=float, default=1.0,
+                        help="Contour falloff curve (0=hard, 1=linear, 2=gradual)")
+
+    # --- mosaic-qr ---
+    p_mosaic = subparsers.add_parser("mosaic-qr", help="Generate mosaic QR code with multiple tiles (M5)")
+    p_mosaic.add_argument("url", help="URL or data to encode")
+    p_mosaic.add_argument("-o", "--output", default="output/mosaic_qr.png", help="Output file path")
+    p_mosaic.add_argument("--tiles", type=int, default=3, help="Number of tiles")
+    p_mosaic.add_argument("--layout", default="horizontal",
+                          choices=["horizontal", "vertical", "grid", "cross", "l-shape", "t-shape"],
+                          help="Tile layout")
+    p_mosaic.add_argument("--gap", type=int, default=10, help="Pixels between tiles")
+    p_mosaic.add_argument("--mode", default="redundant", choices=["redundant", "structured"],
+                          help="Mosaic mode: redundant (same data) or structured (split data)")
+    p_mosaic.add_argument("--apple", action="store_true", help="Use built-in Apple logo")
+    p_mosaic.add_argument("--logo", default=None, help="Path to custom logo image")
+    p_mosaic.add_argument("-e", "--ecc", default="H", choices=["L", "M", "Q", "H"])
+    p_mosaic.add_argument("--box-size", type=int, default=20, help="Module pixel size")
+    p_mosaic.add_argument("--border", type=int, default=2, help="Quiet zone modules")
+    p_mosaic.add_argument("--shape", default="circle", choices=["square", "circle", "rounded"],
+                          help="Data module shape")
+    p_mosaic.add_argument("--color", default=None, help="Data module colour (hex e.g. '000000')")
+    p_mosaic.add_argument("--finder-color", default=None, help="Finder colour (hex)")
+    p_mosaic.add_argument("--finder-style", default="rounded",
+                          choices=["standard", "rounded", "dots"], help="Finder pattern style")
+
+    # --- stegano-qr ---
+    p_steg = subparsers.add_parser("stegano-qr", help="Generate steganographic QR code (M6)")
+    p_steg.add_argument("url", help="URL or data to encode")
+    p_steg.add_argument("-o", "--output", default="output/stegano_qr.png", help="Output file path")
+    p_steg.add_argument("--mode", default="halftone", choices=["halftone", "chroma"],
+                         help="Steganography mode")
+    p_steg.add_argument("--apple", action="store_true", help="Use built-in Apple logo")
+    p_steg.add_argument("--logo", default=None, help="Path to custom logo image")
+    p_steg.add_argument("-v", "--version", type=int, default=None, help="QR version")
+    p_steg.add_argument("-e", "--ecc", default="H", choices=["L", "M", "Q", "H"])
+    p_steg.add_argument("--box-size", type=int, default=20, help="Module pixel size")
+    p_steg.add_argument("--border", type=int, default=4, help="Quiet zone modules")
+    p_steg.add_argument("--shape", default="circle", choices=["square", "circle", "rounded"],
+                         help="Data module shape")
+    p_steg.add_argument("--color", default=None, help="Data module colour (hex e.g. '000000')")
+    p_steg.add_argument("--finder-color", default=None, help="Finder colour (hex)")
+    p_steg.add_argument("--finder-style", default="rounded",
+                         choices=["standard", "rounded", "dots"], help="Finder pattern style")
+
+    # --- lumen ---
+    p_lumen = subparsers.add_parser("lumen", help="Generate or decode a Lumen-Code (M7)")
+    p_lumen.add_argument("url", nargs="?", default=None, help="URL or data to encode")
+    p_lumen.add_argument("-o", "--output", default="output/lumen.png", help="Output file path")
+    p_lumen.add_argument("--apple", action="store_true", default=True, help="Use built-in Apple logo")
+    p_lumen.add_argument("--logo", default=None, help="Path to custom logo image")
+    p_lumen.add_argument("--method", default="polar", choices=["polar", "stroke"],
+                         help="Encoding method")
+    p_lumen.add_argument("--strength", type=float, default=2.0, help="Displacement strength")
+    p_lumen.add_argument("--size", type=int, default=512, help="Output size in pixels")
+    p_lumen.add_argument("--decode", default=None, metavar="IMAGE_PATH",
+                         help="Decode mode: path to encoded image")
+
+    # --- datafont ---
+    p_dfont = subparsers.add_parser("datafont", help="Generate or decode a Data Font image (M8)")
+    p_dfont.add_argument("url", nargs="?", default=None, help="URL to encode")
+    p_dfont.add_argument("--text", default="APPLE", help="Display text (default: APPLE)")
+    p_dfont.add_argument("--font-size", type=int, default=5, choices=[3, 4, 5],
+                         help="Pixel font size (3/4/5, default 5)")
+    p_dfont.add_argument("--scale", type=int, default=10, help="Rendering scale factor (default 10)")
+    p_dfont.add_argument("-o", "--output", default="output/datafont.png", help="Output file path")
+    p_dfont.add_argument("--decode", default=None, metavar="IMAGE_PATH",
+                         help="Decode mode: path to encoded image")
 
     # --- shorten ---
     p_short = subparsers.add_parser("shorten", help="Shorten a URL")
@@ -272,6 +602,11 @@ def main():
         "stress": cmd_stress,
         "bitmap": cmd_bitmap,
         "logo-qr": cmd_logo_qr,
+        "art-qr": cmd_art_qr,
+        "mosaic-qr": cmd_mosaic_qr,
+        "stegano-qr": cmd_stegano_qr,
+        "lumen": cmd_lumen,
+        "datafont": cmd_datafont,
         "shorten": cmd_shorten,
         "serve": cmd_serve,
     }

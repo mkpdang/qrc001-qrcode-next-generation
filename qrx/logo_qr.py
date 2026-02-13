@@ -265,6 +265,19 @@ def _draw_module(
         )
 
 
+def _contour_scale(coverage: float, softness: float = 1.0) -> float:
+    """Map module coverage [0.0, 1.0] to dot scale [0.0, 1.0] via power curve.
+
+    ``softness=0`` → hard edge (step function),
+    ``softness=1`` → linear,
+    ``softness=2`` → gradual (wider fade).
+    """
+    t = max(0.0, min(1.0, coverage))
+    if softness <= 0:
+        return 1.0 if t > 0 else 0.0
+    return t ** (1.0 / softness)
+
+
 def _draw_styled_finders(
     draw: ImageDraw.Draw,
     module_map: dict,
@@ -493,12 +506,18 @@ def rasterize_logo_on_qr(
     logo_color: tuple[int, ...] = (0, 0, 0),
     shape: str = "circle",
     sub_grid: int = 3,
+    cov_map: dict | None = None,
+    contour_softness: float = 1.0,
+    min_dot_scale: float = 0.15,
 ) -> Image.Image:
     """Render the logo as a dot grid matching the QR module style.
 
     Instead of pasting a solid silhouette, this subdivides each covered
     module into a *sub_grid* x *sub_grid* cell grid and draws small dots
     where the logo mask is active — creating a cohesive halftone effect.
+
+    When *cov_map* is provided, edge modules are included with graduated
+    dot sizes (contour strategy) for a smooth logo-to-QR transition.
 
     Args:
         qr_image:        Styled QR (RGB).
@@ -509,6 +528,9 @@ def rasterize_logo_on_qr(
         logo_color:      RGB fill for the logo dots.
         shape:           Dot shape — 'circle', 'rounded', or 'square'.
         sub_grid:        Sub-divisions per module (default 3 → 9 dots max).
+        cov_map:         Per-module coverage fractions (enables contour).
+        contour_softness: Falloff curve (0=hard, 1=linear, 2=gradual).
+        min_dot_scale:   Skip dots below this scale (avoids 1px noise).
 
     Returns:
         New RGB image with the logo rendered as dots.
@@ -529,13 +551,29 @@ def rasterize_logo_on_qr(
         py = (r + border) * box_size
         draw.rectangle([px, py, px + box_size - 1, py + box_size - 1], fill=(255, 255, 255))
 
-    # Draw sub-grid dots for covered modules where logo mask is active
+    # Determine which modules to render dots for
+    render_modules = covered | edge if cov_map is not None else covered
+
+    # Draw sub-grid dots where logo mask is active
     mask_h, mask_w = logo_mask_on_qr.shape
     dots_drawn = 0
 
-    for r, c in covered:
+    for r, c in render_modules:
         mod_px = (c + border) * box_size
         mod_py = (r + border) * box_size
+
+        # Compute contour scale for this module
+        if cov_map is not None:
+            scale = _contour_scale(cov_map.get((r, c), 0.0), contour_softness)
+            if scale < min_dot_scale:
+                continue
+            scaled_sub = max(2, int(sub_size * scale))
+            offset = (sub_size - scaled_sub) // 2
+        else:
+            scaled_sub = sub_size
+            offset = 0
+
+        scaled_margin = max(1, scaled_sub // 8)
 
         for si in range(sub_grid):
             for sj in range(sub_grid):
@@ -545,9 +583,9 @@ def rasterize_logo_on_qr(
                 # Bounds check against the mask array
                 if 0 <= center_y < mask_h and 0 <= center_x < mask_w:
                     if logo_mask_on_qr[center_y, center_x]:
-                        dot_x = mod_px + pad + sj * sub_size
-                        dot_y = mod_py + pad + si * sub_size
-                        _draw_module(draw, dot_x, dot_y, sub_size, margin, logo_color, shape)
+                        dot_x = mod_px + pad + sj * sub_size + offset
+                        dot_y = mod_py + pad + si * sub_size + offset
+                        _draw_module(draw, dot_x, dot_y, scaled_sub, scaled_margin, logo_color, shape)
                         dots_drawn += 1
 
     audit(
@@ -557,6 +595,7 @@ def rasterize_logo_on_qr(
         covered_modules=len(covered),
         edge_modules=len(edge),
         dots_drawn=dots_drawn,
+        contour_enabled=cov_map is not None,
     )
     return result
 
@@ -611,6 +650,7 @@ def generate_logo_qr(
     finder_style: str = "rounded",
     logo_color: tuple[int, ...] = (0, 0, 0),
     logo_coverage: float = 0.35,
+    contour_softness: float = 1.0,
     verify_scan: bool = True,
 ) -> dict:
     """Generate a logo-aware QR code — the M2 master function.
@@ -693,6 +733,8 @@ def generate_logo_qr(
         border=border,
         logo_color=logo_color,
         shape=shape,
+        cov_map=cov_map,
+        contour_softness=contour_softness,
     )
 
     # -- 10. Leaf-as-anchor metadata ----------------------------------------

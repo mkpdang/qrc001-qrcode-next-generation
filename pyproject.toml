@@ -9,4 +9,7 @@ dependencies = [
     "pillow>=12.1.1",
     "pyzbar>=0.1.9",
     "qrcode>=8.2",
+    "scikit-image>=0.26.0",
+    "scipy>=1.17.0",
+    "segno>=1.6.6",
 ]
